@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <title>页面认证助手</title>
+        <script type="text/javascript" charset="utf-8" src='jquery.js'></script>
+        <script type="text/javascript" charset="utf-8" src='menu.js'></script>
+        <link rel="stylesheet" type="text/css" href="menu.css">
+    </head>
+    <body>
+        <div id="content">
+            <h3 class="title no-select">自动认证设置</h3>
+            <div class="group">
+                <label class="w60 no-select">自动认证开关</label>
+                <div class="switch-p open" id="kaiguan-switch">
+                    <div class="switch-s open"></div>
+                </div>
+            </div>
+            <div id="time-content" style="display: none;">
+                <div class="group">
+                    <label class="w20 no-select">间隔</label>
+                    <input class="input w70 mr6" type="text" name="time_flush" value="60" placeholder="刷新间隔">
+                </div>
+                <div class="group">
+                    <label class="w20 no-select">URL</label>
+                    <input class="input w70 mr6" type="text" name="request_url" value="http://127.0.0.1:12306" placeholder="请求地址">
+                </div>
+                <div class="group">
+                    <label class="w20 no-select">上边距</label>
+                    <input class="input w70 mr6" type="text" name="margin_top" value="" placeholder="请求地址">
+                </div>
+                <div class="group">
+                    <button type="button" class="btn center w70" id="confirm-btn">确定</button>
+                </div>
+            </div>
+        </div>
+    </body>
+</html>
