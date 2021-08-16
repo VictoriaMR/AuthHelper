@@ -9,63 +9,119 @@ const MAIN = {
 					if (res.data) {
 						_this.margin_top = parseInt(res.data);
 					} else {
-						_this.margin_top = window.outerHeight - window.innerHeight - 10;
+						_this.margin_top = window.outerHeight - window.innerHeight;
 						chrome.runtime.sendMessage({action: 'setCache', cache_key: 'margin_top', value: _this.margin_top});
 					}
-					const domain = _this.getDomain();
+					_this.windowX = Math.ceil(window.screenX) + 8;//窗口位置x
+					_this.windowY = Math.ceil(window.screenY);//窗口位置y
+					console.log(_this.windowX, _this.windowY, '窗口位置')
+					_this.getDomain();
 					_this.getExtid();
-					//初始化刷新时间
+					//初始化刷新时间 后台设置一个刷新页面定时器, 页面正常进入时重新启动定时器刷新页面.
 					chrome.runtime.sendMessage({action: 'flush_start'});
-					_this.isVerifyPage(domain, function(res, type){
-						if (res) {
-							// console.log('开始认证')
-							_this.windowX = Math.ceil(window.screenX) + 10;//窗口位置x
-							_this.windowY = Math.ceil(window.screenY);//窗口位置y
-							// console.log('windows', _this.windowX, _this.windowY)
-							_this.doVerify(domain, type);
-						} else {
-							// console.log('结束认证')
-							_this.sendToStop();
+					//是登录页面
+					if (_this.isLoginPage()) {
+						//获取自动助手中储存的账号数据
+						let configData = localStorage.getItem('local_set_account');
+						//输入账号密码登录
+						if (configData) {
+							_this.start(function(){
+								_this.login(JSON.parse(configData), 1);
+							});
 						}
-					});
+					} else {
+						_this.isVerifyPage(function(res, type) {
+							if (res) {
+								//拖动认证
+								_this.start(function(){
+									_this.doVerify(type);
+								});
+							} else {
+								// console.log('结束认证')
+								_this.stop();
+							}
+						});
+					}
 				});
 			}
 		});
 	},
-	//页面刷新方法
-	flush: function(callback) {
-		const param = {action:'flush', x:this.windowX + 82, y:this.windowY + 50};
-		if (Math.random()*5 >= 2) {
-			param.nc = 1;
-		}
-		chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res){
-			if (res.code === 0 || res.code === '0') {
-				if (callback) {
-					callback();
-				}
+	//获取目标元素的x,y,w,h 数值
+	getRect: function(id, callback) {
+		const _this = this;
+		const timeId = _this.waitTime(function(){
+			let obj = document.querySelector(id);
+			if (obj) {
+				_this.clearTime(timeId);
+				const rect = obj.getBoundingClientRect();
+				const x = Math.ceil(rect.left) + _this.windowX;
+				const y = Math.ceil(rect.top) + _this.margin_top + _this.windowY;
+				const w = Math.ceil(rect.width);
+				const h = Math.ceil(rect.height);
+				callback({x:x, y:y, w:w, h:h});
 			}
 		});
 	},
-	//滑动方法
-	slider: function(param, callback) {
-		chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res) {
+	//请求方法
+	request: function(callback) {
+		this.param.extid = this.extid;
+		chrome.runtime.sendMessage({action: 'request_py', param: this.param}, function(res) {
 			if (callback) {
 				callback(res);
 			}
 		});
 	},
-	//发送停止方法
-	sendToStop: function(){
+	//请求开始方法,类似获取唯一锁, 成功获取时执行回调方法
+	start: function(callback) {
+		const _this = this;
+		_this.param = {action: 'start'};
+		let startReturn = true;
+		let sliderReturn = true;
+		const timeId = _this.waitTime(function(){
+			_this.request(function(res){
+				if (res.code === 0) {
+					//页面缓存启动认证状态
+					chrome.runtime.sendMessage({action:'setCache', cache_key:'verify_status', value:'1'});
+					_this.clearTime(timeId);
+					callback();
+				}
+			});
+		}, 4000, true);
+	},
+	//释放锁方法, 页面正常进入时调用一次
+	stop: function(callback) {
 		//是否发送完成验证
 		const _this = this;
-		chrome.runtime.sendMessage({action: 'getCache', cache_key: 'slider_status'}, function(res) {
+		chrome.runtime.sendMessage({action: 'getCache', cache_key: 'verify_status'}, function(res) {
 			if (res.data && res.data === '1') {
-				const param = {extid:_this.extid, action:'end'};
-				chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res){
-					chrome.runtime.sendMessage({action: 'setCache', cache_key: 'slider_status', value: '0'});
+				_this.param = {extid:_this.extid, action:'end'};
+				_this.request(function(res){
+					chrome.runtime.sendMessage({action: 'setCache', cache_key: 'verify_status', value: '0'});
 				});
 			}
 		});
+	},
+	//输入方法 
+	input: function(callback) {
+		this.param['action'] = 'input';
+		this.request(callback);
+	},
+	click: function(callback) {
+		this.param['action'] = 'click';
+		this.request(callback);
+	},
+	//页面刷新方法
+	flush: function(callback) {
+		this.param = {action:'flush', x:this.windowX + 82, y:this.windowY + 50};
+		if (Math.random()*5 >= 2) {
+			this.param.nc = 1;
+		}
+		this.request(callback);
+	},
+	//滑动方法
+	slider: function(callback) {
+		this.param['action'] = 'slider';
+		this.request(callback);
 	},
 	//生成唯一ID
 	getExtid: function(){
@@ -79,56 +135,8 @@ const MAIN = {
 			}
 		});
 	},
-	//获取domain
-	getDomain: function() {
-		const host = location.host.split('.');
-		const len = host.length;
-		return host[len-2]+'.'+host[len-1];
-	},
-	isVerifyPage: function(domain, callback) {
-		const _this = this;
-		let timeId;
-		switch(domain) {
-			case '1688.com':
-				//等待页面加载完毕
-				timeId = _this.waitTime(function(){
-					const title = document.querySelector('title');
-					if (title && title.innerText) {
-						_this.clearTime(timeId);
-						if (title.innerText === '验证码拦截') {
-							callback(true, 1);
-						} else {
-							callback(false);
-							// 正常页面内继续检测验证弹窗
-							timeId = _this.waitTime(function(){
-								const tempObj = document.querySelector('.sufei-dialog-jquery');
-								if (tempObj) {
-									_this.clearTime(timeId);
-									if (tempObj.style && tempObj.style.display === 'block') {
-										callback(true, 2);
-									}
-								}
-							}, 1000);
-						}
-					}
-				});
-				break
-			case 'taobao.com':
-				timeId = _this.waitTime(function(){
-					const obj = document.querySelector('.baxia-dialog');
-					if (obj && obj.style.display === 'block') {
-						_this.clearTime(timeId);
-						callback(true);
-					}
-				});
-				break;
-			default:
-				callback(false);
-				break;
-		}
-	},
 	waitTime: function(callback, time, noStop){
-		var _this = this;
+		const _this = this;
 		if (!time) {
 			time = 500;
 		}
@@ -149,188 +157,235 @@ const MAIN = {
 		return clearInterval(this[timeId]);
 	},
 	createId: function(len) {
-        let arr = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
-        let str='';
-        for(let i=0;i<len;++i){
-            str+=arr[Math.round(Math.random()*(arr.length-1))];
-        }
-        return str;
-    },
-	doVerify: function(domain, type) {
+		let arr = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm', 'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z', 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z'];
+		let str='';
+		for (let i=0; i<len; ++i) {
+			str += arr[Math.round(Math.random()*(arr.length-1))];
+		}
+		return str;
+	},
+	//获取domain
+	getDomain: function() {
+		const host = location.host.split('.');
+		const len = host.length;
+		this.domain = host[len-2]+'.'+host[len-1];
+		return this.domain;
+	},
+	isLoginPage: function() {
+		return location.href.indexOf('login') >= 0;
+	},
+	isVerifyPage: function(callback) {
 		const _this = this;
 		let timeId;
-		switch(domain) {
+		switch(_this.domain) {
+			case '1688.com':
+				//等待页面加载完毕
+				timeId = _this.waitTime(function(){
+					const title = document.querySelector('title');
+					if (title && title.innerText) {
+						_this.clearTime(timeId);
+						if (title.innerText === '验证码拦截') {
+							callback(true, 1);
+						} else {
+							// 正常页面内继续检测验证弹窗
+							timeId = _this.waitTime(function(){
+								const obj = document.querySelector('.sufei-dialog-jquery');
+								if (obj && obj.style.display === 'block') {
+									//todo 认证弹窗的区分, 是登录 | 滚动条认证
+									_this.clearTime(timeId);
+									callback(true, 2);
+								}
+							}, 1000);
+						}
+					}
+				});
+				break
+			case 'taobao.com':
+				timeId = _this.waitTime(function(){
+					const obj = document.querySelector('.baxia-dialog');
+					if (obj && obj.style.display === 'block') {
+						//todo 认证弹窗的区分, 是登录 | 滚动条认证
+						_this.clearTime(timeId);
+						callback(true, 2);
+					}
+				});
+				break;
+			default:
+				callback(false);
+				break;
+		}
+	},
+	//页面输入登录
+	login: function(config, type) {
+		const _this = this;
+		switch (_this.domain) {
+			case 'taobao.com':
+				// 获取名称输入框位置
+				_this.getRect('#fm-login-id', function(rect) {
+					_this.param = {
+						x: rect.x + rect.w - 20,
+						y: rect.y + 20,
+						value: config.account,
+					}
+					//输入账号
+					_this.input(function(res){
+						if (res.code === 0) {
+							//输入密码
+							_this.getRect('#fm-login-password', function(rect) {
+								_this.param = {
+									x: rect.x + rect.w - 20,
+									y: rect.y + 20,
+									value: config.password,
+								}
+								//输入密码
+								_this.input(function(res){
+									if (res.code === 0) {
+										_this.getRect('.password-login', function(rect) {
+											_this.param = {
+												x: rect.x + rect.w / 2,
+												y: rect.y + 20,
+											}
+											_this.click();
+										});
+										//点击登录
+									}
+								});
+							});
+						}
+					});
+				});
+				break;
+		}
+	},
+	doVerify: function(type) {
+		const _this = this;
+		let timeId;
+		switch(_this.domain) {
 			case '1688.com':
 				//循环等待页面加载完成
+				if (type === 2) {
+					_this.doVerify2();
+				} else {
+					_this.doVerify1();
+				}
+				return false;
+
 				timeId = _this.waitTime(function(){
 					if ((document.getElementById('nc_1_n1z') && document.getElementById('nc_1__scale_text')) || document.getElementById('sufei-dialog-content')) {
 						_this.clearTime(timeId);
 						_this.verifyCount = 0;
 						if (type === 2) {
-							_this.do1688Verify2();
+							_this.doVerify2();
 						} else {
-							_this.do1688Verify1();
+							_this.doVerify1();
 						}
 					}
 				});
 				break;
 			case 'taobao.com':
-				timeId = _this.waitTime(function() {
-					const obj = document.querySelector('.baxia-dialog');
-					if (obj && obj.style.display === 'block') {
-						_this.clearTime(timeId);
-						_this.verifyCount = 0;
-						_this.do1688Verify2();
-					}
-				});
+				_this.doVerify2();
 				break;
 		}
 	},
+	//页面向右下调整, 露出拖动条界面
 	toScrollDown: function () {
 		const body = document.querySelector('body');
-		const clientW = body.scrollWidth;
-		const clientH = body.scrollHeight;
-		body.scrollLeft = clientW;
-		body.scrollTop = clientH;
+		body.scrollLeft = body.scrollWidth;
+		body.scrollTop = body.scrollHeight;
 	},
-	do1688Verify1: function() {
+	doVerify1: function() {
 		const _this = this;
 		//页面滚动到最右下
 		_this.toScrollDown();
 		//滑块位置, 宽高
-		const rect = document.getElementById('nc_1_n1z').getBoundingClientRect();
-		const x = Math.ceil(rect.left) + _this.windowX;
-		const y = Math.ceil(rect.top) + _this.margin_top + _this.windowY;
-		const w = Math.ceil(rect.width);
-		const h = Math.ceil(rect.height);
-		//滑轨长度
-		const sliderW = Math.ceil(document.getElementById('nc_1__scale_text').getBoundingClientRect().width);
-		// console.log(x, y, w, h)
-		//循环请求开始
-		let param = {action: 'start', extid: _this.extid};
-		let startReturn = true;
-		let sliderReturn = true;
-		const timeId = _this.waitTime(function(){
-			if (startReturn) {
-				startReturn = false;
-				param.action = 'start';
-				chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res) {
-					if (res.code === 0 || res.code === '0') {
-						startReturn = false;
-						_this.clearTime(timeId);
-						chrome.runtime.sendMessage({action:'setCache', cache_key:'slider_status', value:'1'});
-						sliderTimeId = _this.waitTime(function() {
-							if (sliderReturn) {
-								sliderReturn = false;
-								const fBtn = document.querySelector('#nocaptcha .errloading a');
-								if (fBtn) {
-									const fBtnRect = fBtn.getBoundingClientRect();
-									param.x = Math.ceil(fBtnRect.left) + _this.windowX + 10;
-									param.y = Math.ceil(fBtnRect.top) + _this.windowY + _this.margin_top + 3;
-									param.action = 'click';
-									chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res) {
-										if (res.code === 0 || res.code === '0') {
-											param.action = 'slider';
-											param.x = x + Math.random()*(w - 10) + 5;
-											param.y = y + Math.random()*(h - 10) + 5;
-											param.w = sliderW -  w/2 + Math.random()*(100);
-											_this.slider(param, function(res){
-												sliderReturn = true;
-												if (res.code === 0 || res.code === '0') {
-													_this.verifyCount ++;
-													if (_this.verifyCount > parseInt(Math.random()*5 + 3)) {
-														_this.clearTime(sliderTimeId);
-														_this.flush();
-													}
-												} else if (res.code === -4 || res.code === '-4') {
-													_this.clearTime(sliderTimeId);
-												}
-											});
-										}
+		console.log('doVerify1')
+		let x = y = sliderW = 0;
+		_this.getRect('#nc_1__scale_text', function(rect){
+			console.log(rect, 'res')
+			const x = rect.x;
+			const y = rect.y;
+			const sliderW = rect.w;
+			let sliderReturn = true;
+			let count = 0;
+			const stopCount = Math.random()*10 + 6;
+
+			const sliderTimeId = _this.waitTime(function() {
+				if (sliderReturn) {
+					count ++;
+					if (count > stopCount) {
+						_this.clearTime(sliderTimeId);
+						_this.flush();
+						return;
+					}
+					sliderReturn = false;
+					console.log(document.querySelector('#nocaptcha .errloading a'))
+					if (document.querySelector('#nocaptcha .errloading a')) {
+						_this.getRect('#nocaptcha .errloading a', function(res){
+							_this.param = {x: res.x + 10, y: res.y+10};
+							_this.click(function(){
+								if (res.code === 0) {
+									_this.param = {x:x + 5 + Math.random()*32, y:y + 5 + Math.random()*24, w: sliderW};
+									_this.slider(function(){
+										sliderReturn = true;
 									});
 								} else {
-									param.action = 'slider';
-									param.x = x + Math.random()*(w - 10) + 5;
-									param.y = y + Math.random()*(h - 10) + 5;
-									param.w = sliderW -  w/2 + Math.random()*(100);
-									_this.slider(param, function(res){
-										sliderReturn = true;
-										if (res.code === 0 || res.code === '0') {
-											_this.verifyCount ++;
-											if (_this.verifyCount > parseInt(Math.random()*5 + 3)) {
-												_this.clearTime(sliderTimeId);
-												_this.flush();
-											}
-										} else if (res.code === -4 || res.code === '-4') {
-											_this.clearTime(sliderTimeId);
-										}
-									});
+									sliderReturn = true;
 								}
-							}
-						}, Math.random()*2000 + Math.random()*2000 + 1450, true);
+							});
+						});
 					} else {
-						startReturn = true;
+						console.log(x, x + 5 + Math.random()*32)
+						_this.param = {x: x + 5 + Math.random()*32, y: y + 5 + Math.random()*24, w: sliderW};
+						console.log(_this.param)
+						_this.slider(function(){
+							sliderReturn = true;
+						});
 					}
-				});
-			}
-		}, 4000, true);
+				}
+			}, Math.random()*2000 + Math.random()*2000 + 1450, true);
+		});
 	},
-	do1688Verify2: function() {
+	doVerify2: function() {
 		const _this = this;
-		const x = window.innerWidth / 2 - 210 + _this.windowX + 50;
-		const y = window.innerHeight / 2 - 160 + _this.windowY + _this.margin_top + 200;
-		const w = 30;
-		const h = 20;
-		const cx = x + 151;
-		const cy = y + 15;
-		const sliderW = 300;
-		let startReturn = true;
+		//计算滚动条在页面位置
+		const x = window.innerWidth / 2 - 210 + _this.windowX + 36 ;
+		const y = window.innerHeight / 2 - 160 + _this.windowY + _this.margin_top + 195;
 		let sliderReturn = true;
+		const sliderW = 300;
+		let count = 0;
+		const stopCount = Math.random()*10 + 6;
 
-		let param = {action: 'start', extid: _this.extid};
-		const timeId = _this.waitTime(function(){
-			if (startReturn) {
-				startReturn = false;
-				param.action = 'start';
-				chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res) {
-					if (res.code === 0 || res.code === '0') {
-						startReturn = false;
-						_this.clearTime(timeId);
-						chrome.runtime.sendMessage({action:'setCache', cache_key:'slider_status', value:'1'});
-						sliderTimeId = _this.waitTime(function() {
-							if (sliderReturn) {
-								sliderReturn = false;
-								param.x = cx;
-								param.y = cy;
-								param.action = 'click';
-								chrome.runtime.sendMessage({action: 'request_py', param: param}, function(res) {
-									if (res.code === 0 || res.code === '0') {
-										param.action = 'slider';
-										param.x = x + Math.random()*(w - 10) + 5;
-										param.y = y + Math.random()*(h - 10) + 5;
-										param.w = sliderW -  w/2 + Math.random()*(100);
-										_this.slider(param, function(res){
-											sliderReturn = true;
-											if (res.code === 0 || res.code === '0') {
-												_this.verifyCount ++;
-												if (_this.verifyCount > parseInt(Math.random()*5 + 3)) {
-													_this.clearTime(sliderTimeId);
-													_this.flush();
-												}
-											} else if (res.code === -4 || res.code === '-4') {
-												_this.clearTime(sliderTimeId);
-											}
-										});
-									}
-								});
-							}
-						}, Math.random()*2000 + Math.random()*2000 + 1450, true);
+		//循环拖动, 嵌入式页面无发验证是否拖动成功, 只能每次循环之前判断弹窗是否还存在
+		const sliderTimeId = _this.waitTime(function() {
+			if (sliderReturn) {
+				count ++;
+				if (count > stopCount) {
+					_this.clearTime(sliderTimeId);
+					return;
+				}
+				_this.isVerifyPage(function(res){
+					if (res) {
+						sliderReturn = false;
+						_this.param = {x:x + 151, y: y + 15};
+						_this.click(function(res){
+							_this.param = {x:x + 192, y: y + 20};
+							_this.click(function(res){
+								if (res.code === 0) {
+									_this.param = {x:x + 5 + Math.random()*32, y:y + 5 + Math.random()*24, w: sliderW};
+									_this.slider(function(){
+										sliderReturn = true;
+									});
+								} else {
+									sliderReturn = true;
+								}
+							});
+						})
 					} else {
-						startReturn = true;
+						_this.clearTime(sliderTimeId);
 					}
 				});
 			}
-		}, 4000, true);
+		}, Math.random()*2000 + Math.random()*2000 + 1450, true);
 	}
 };
 //初始化入口
