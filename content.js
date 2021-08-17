@@ -14,7 +14,6 @@ const MAIN = {
 					}
 					_this.windowX = Math.ceil(window.screenX) + 8;//窗口位置x
 					_this.windowY = Math.ceil(window.screenY);//窗口位置y
-					console.log(_this.windowX, _this.windowY, '窗口位置')
 					_this.getDomain();
 					_this.getExtid();
 					//初始化刷新时间 后台设置一个刷新页面定时器, 页面正常进入时重新启动定时器刷新页面.
