@@ -96,6 +96,9 @@ const MAIN = {
 				_this.param = {extid:_this.extid, action:'end'};
 				_this.request(function(res){
 					chrome.runtime.sendMessage({action: 'setCache', cache_key: 'verify_status', value: '0'});
+					if (callback) {
+						callback();
+					}
 				});
 			}
 		});
@@ -306,18 +309,19 @@ const MAIN = {
 			const sliderW = rect.w;
 			let sliderReturn = true;
 			let count = 0;
-			const stopCount = Math.random()*10 + 6;
+			const stopCount = Math.random()*5 + 5;
 
 			const sliderTimeId = _this.waitTime(function() {
 				if (sliderReturn) {
 					count ++;
 					if (count > stopCount) {
 						_this.clearTime(sliderTimeId);
-						_this.flush();
+						_this.stop(function(){
+							_this.flush();
+						});
 						return;
 					}
 					sliderReturn = false;
-					console.log(document.querySelector('#nocaptcha .errloading a'))
 					if (document.querySelector('#nocaptcha .errloading a')) {
 						_this.getRect('#nocaptcha .errloading a', function(res){
 							_this.param = {x: res.x + 10, y: res.y+10};
@@ -333,9 +337,7 @@ const MAIN = {
 							});
 						});
 					} else {
-						console.log(x, x + 5 + Math.random()*32)
 						_this.param = {x: x + 5 + Math.random()*32, y: y + 5 + Math.random()*24, w: sliderW};
-						console.log(_this.param)
 						_this.slider(function(){
 							sliderReturn = true;
 						});
@@ -352,7 +354,7 @@ const MAIN = {
 		let sliderReturn = true;
 		const sliderW = 300;
 		let count = 0;
-		const stopCount = Math.random()*10 + 6;
+		const stopCount = Math.random()*5 + 5;
 
 		//循环拖动, 嵌入式页面无发验证是否拖动成功, 只能每次循环之前判断弹窗是否还存在
 		const sliderTimeId = _this.waitTime(function() {
@@ -360,6 +362,9 @@ const MAIN = {
 				count ++;
 				if (count > stopCount) {
 					_this.clearTime(sliderTimeId);
+					_this.stop(function(){
+						_this.flush();
+					});
 					return;
 				}
 				_this.isVerifyPage(function(res){
